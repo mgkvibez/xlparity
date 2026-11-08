@@ -15,6 +15,25 @@ Parity is not a matter of opinion if you pre-register the metric. [`docs/scorebo
 counts as a match, cohort by cohort, before any result exists. The corpus grows and is never trimmed, and a failing formula
 stays on the board after it starts passing, so the score cannot be quietly improved by redefining the test.
 
+## What works today
+
+- Parser and evaluator: Excel operator precedence (`-2^2` is `4`, `^` is right-associative), comparisons across
+  types in Excel's order (numbers < text < logicals, text compared case-insensitively), error *values* that
+  propagate instead of raising.
+- Ranges: `A1:C3`, `$A$1:$B$2`, reversed corners. Aggregates ignore text, blanks and logicals **inside** a block
+  while a scalar argument is coerced, so `SUM(1,"x",3)` is `#VALUE!` and `SUM(A1:A4)` skips the text, which is what
+  Excel actually does.
+- 25 functions: SUM, MIN, MAX, AVERAGE, COUNT, COUNTA, IF, IFERROR, AND, OR, NOT, ISBLANK, ISNUMBER, ISTEXT,
+  ISERROR, ROUND, ROUNDUP, ROUNDDOWN, INT, MOD, SQRT, ABS, LEN, LEFT, RIGHT, MID, TRIM, UPPER, LOWER, CONCAT.
+- 39 tests.
+
+## What does not work yet
+
+- No scoreboard yet: `docs/scoreboard.md` defines the metric, but nothing computes it.
+- Dynamic arrays and spilling, lookup functions (VLOOKUP/XLOOKUP/FILTER), financial functions, and XLSX reading
+  are all absent.
+- No locale handling: Excel's separators and formats vary by locale, and this engine assumes the English one.
+
 ## Status
 
 **Stage 0: scaffolding.** The parser and evaluator exist with 20 passing tests covering the details that "Excel-ish"

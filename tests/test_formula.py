@@ -56,9 +56,12 @@ def test_unknown_function_is_a_name_error_value():
     assert value("NOPE(1)").code == "#NAME?"
 
 
-def test_sum_ignores_text_and_blanks():
+def test_sum_ignores_text_in_ranges_but_not_in_arguments():
     assert value("SUM(1,2,3)") == 6
-    assert value('SUM(1,"x",3)') == 4
+    # Excel coerces a literal argument, so an uncoercible one is an error, not a silent skip.
+    assert value('SUM(1,"x",3)').code == "#VALUE!"
+    # Inside a range Excel ignores text and blanks entirely, which is the case the old test was aiming at.
+    assert value("SUM(A1:A4)", {"A1": 1, "A2": "x", "A3": None, "A4": 3}) == 4
 
 
 def test_sum_reads_cells():

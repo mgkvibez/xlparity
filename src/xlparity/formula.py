@@ -11,8 +11,10 @@ grows function by function, each measured against Excel's own output rather than
 
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Sequence, Union
+from typing import Callable, Dict, List, Sequence, Tuple, Union
 
 Number = Union[int, float]
 Value = Union[Number, str, bool, None, "ExcelError"]
@@ -32,6 +34,7 @@ DIV0 = ExcelError("#DIV/0!")
 VALUE = ExcelError("#VALUE!")
 NAME = ExcelError("#NAME?")
 REF = ExcelError("#REF!")
+NUM = ExcelError("#NUM!")
 
 
 class FormulaError(Exception):
@@ -83,7 +86,7 @@ def tokenize(source: str) -> List[Token]:
             i += 2
             continue
 
-        if char in "+-*/^&%,()<>=.":
+        if char in "+-*/^&%,()<>=.:":
             if char == "." and i + 1 < length and source[i + 1].isdigit():
                 j = i
                 while j < length and (source[j].isdigit() or source[j] == "."):
@@ -149,6 +152,23 @@ _COMPARISON = {"=", "<>", "<", ">", "<=", ">="}
 @dataclass(frozen=True)
 class Literal:
     value: object
+
+
+@dataclass(frozen=True)
+class Range:
+    """A rectangular block of cells, such as A1:C3.
+
+    Excel treats a block differently from a scalar in one way that matters for parity: SUM(A1:A3) ignores text
+    and logicals inside the block, while SUM("abc") is a #VALUE! error. Tagging values that came from a range
+    is how the aggregates tell those two apart.
+    """
+
+    start: str
+    end: str
+
+
+class RangeValues(list):
+    """Values read out of a Range. A list subclass, so every existing list consumer still works."""
 
 
 @dataclass(frozen=True)
@@ -270,7 +290,15 @@ class _Parser:
         if kind == "bool":
             return Literal(value)
         if kind == "ref":
-            return Reference(str(value))
+            node: Node = Reference(str(value))
+            following = self.peek()
+            if following is not None and following[0] == "op" and following[1] == ":":
+                self.next()
+                closing = self.next()
+                if closing[0] != "ref":
+                    raise FormulaError("a range needs a cell reference on both sides of :")
+                node = Range(str(value), str(closing[1]))
+            return node
         if kind == "(":
             node = self.parse_comparison()
             closing = self.next()
@@ -338,11 +366,41 @@ def _to_text(value: Value) -> str:
     return str(value)
 
 
+def _blank_as(other: Value) -> Value:
+    """A blank takes the type of whatever it is compared against: 0, "" or FALSE."""
+    if isinstance(other, bool):
+        return False
+    if isinstance(other, (int, float)):
+        return 0.0
+    return ""
+
+
+def _rank(value: Value) -> int:
+    """Excel sorts every type against every other: numbers first, then text, then logicals."""
+    if isinstance(value, bool):
+        return 2
+    if isinstance(value, (int, float)):
+        return 0
+    return 1
+
+
 def _compare(left: Value, right: Value) -> int:
-    left_number = _to_number(left)
-    right_number = _to_number(right)
-    if not isinstance(left_number, ExcelError) and not isinstance(right_number, ExcelError):
-        return (left_number > right_number) - (left_number < right_number)
+    if left is None and right is None:
+        return 0
+    if left is None:
+        return _compare(_blank_as(right), right)
+    if right is None:
+        return _compare(left, _blank_as(left))
+
+    left_rank, right_rank = _rank(left), _rank(right)
+    if left_rank != right_rank:
+        return -1 if left_rank < right_rank else 1
+
+    if left_rank == 0:
+        a, b = float(left), float(right)  # type: ignore[arg-type]
+        return (a > b) - (a < b)
+    if left_rank == 2:
+        return int(bool(left)) - int(bool(right))
     a, b = _to_text(left).lower(), _to_text(right).lower()
     return (a > b) - (a < b)
 
@@ -424,8 +482,11 @@ FUNCTIONS: Dict[str, Callable[[Sequence[Value]], Value]] = {
 }
 
 
-def evaluate(node: Node, cells: Dict[str, Value] | None = None) -> Value:
+def _eval(node: Node, cells: Dict[str, Value] | None = None) -> Value:
     cells = cells or {}
+
+    if isinstance(node, Range):
+        return _range_values(node, cells)
 
     if isinstance(node, Literal):
         return node.value
@@ -434,7 +495,7 @@ def evaluate(node: Node, cells: Dict[str, Value] | None = None) -> Value:
         return cells.get(node.name, None)
 
     if isinstance(node, Unary):
-        value = _to_number(evaluate(node.operand, cells))
+        value = _to_number(_eval(node.operand, cells))
         if isinstance(value, ExcelError):
             return value
         return -float(value) if node.op == "-" else float(value)
@@ -442,12 +503,12 @@ def evaluate(node: Node, cells: Dict[str, Value] | None = None) -> Value:
     if isinstance(node, FunctionCall):
         if node.name not in FUNCTIONS:
             return NAME
-        args = [evaluate(arg, cells) for arg in node.args]
+        args = [_eval(arg, cells) for arg in node.args]
         return FUNCTIONS[node.name](args)
 
     if isinstance(node, Binary):
-        left = evaluate(node.left, cells)
-        right = evaluate(node.right, cells)
+        left = _eval(node.left, cells)
+        right = _eval(node.right, cells)
 
         if node.op == "&":
             return _to_text(left) + _to_text(right)
@@ -485,3 +546,395 @@ def evaluate(node: Node, cells: Dict[str, Value] | None = None) -> Value:
             return float(float(a) ** float(b))
 
     raise FormulaError("unreachable: unknown node")
+
+
+# ---------------------------------------------------------------------------
+# Ranges
+# ---------------------------------------------------------------------------
+
+_REF = re.compile("^\\$?([A-Za-z]+)\\$?(\\d+)$")
+
+
+def _split_ref(ref: str) -> Tuple[str, int]:
+    match = _REF.match(ref.strip())
+    if match is None:
+        raise FormulaError("not a cell reference: " + repr(ref))
+    return match.group(1).upper(), int(match.group(2))
+
+
+def _column_index(letters: str) -> int:
+    """A is 1, Z is 26, AA is 27, exactly as Excel numbers columns."""
+    index = 0
+    for letter in letters:
+        index = index * 26 + (ord(letter) - ord("A") + 1)
+    return index
+
+
+def _column_letters(index: int) -> str:
+    letters = ""
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        letters = chr(ord("A") + remainder) + letters
+    return letters
+
+
+def _range_values(node: "Range", cells: Dict[str, Value]) -> "RangeValues":
+    start_column, start_row = _split_ref(node.start)
+    end_column, end_row = _split_ref(node.end)
+    first, last = _column_index(start_column), _column_index(end_column)
+    if first > last:
+        first, last = last, first
+    top, bottom = sorted((start_row, end_row))
+    values = RangeValues()
+    for row in range(top, bottom + 1):
+        for column in range(first, last + 1):
+            values.append(cells.get(_column_letters(column) + str(row)))
+    return values
+
+
+# ---------------------------------------------------------------------------
+# Aggregate and logical semantics
+# ---------------------------------------------------------------------------
+
+
+def _from_range(item: object) -> bool:
+    return isinstance(item, RangeValues)
+
+
+def _numeric_operands(args: Sequence[Value]) -> List[float] | ExcelError:
+    """Numbers for an aggregate.
+
+    A value read from a range contributes only when it is a number: Excel ignores text, blanks and logicals
+    inside a block. A scalar argument is coerced, so SUM("abc") is #VALUE! rather than a silent zero.
+    """
+    numbers: List[float] = []
+    for arg in args:
+        if _from_range(arg):
+            for item in arg:  # type: ignore[attr-defined]
+                if isinstance(item, bool) or item is None:
+                    continue
+                if isinstance(item, (int, float)):
+                    numbers.append(float(item))
+            continue
+        if isinstance(arg, list):
+            for item in arg:
+                if isinstance(item, bool) or item is None:
+                    continue
+                if isinstance(item, (int, float)):
+                    numbers.append(float(item))
+            continue
+        converted = _to_number(arg)
+        if isinstance(converted, ExcelError):
+            return converted
+        numbers.append(float(converted))
+    return numbers
+
+
+def _fn_min(args: Sequence[Value]) -> Value:
+    numbers = _numeric_operands(_flatten(args) if not args else args)
+    if isinstance(numbers, ExcelError):
+        return numbers
+    return min(numbers) if numbers else 0.0
+
+
+def _fn_max(args: Sequence[Value]) -> Value:
+    numbers = _numeric_operands(_flatten(args) if not args else args)
+    if isinstance(numbers, ExcelError):
+        return numbers
+    return max(numbers) if numbers else 0.0
+
+
+def _fn_average(args: Sequence[Value]) -> Value:
+    numbers = _numeric_operands(_flatten(args) if not args else args)
+    if isinstance(numbers, ExcelError):
+        return numbers
+    if not numbers:
+        return DIV0
+    return sum(numbers) / len(numbers)
+
+
+def _fn_count(args: Sequence[Value]) -> Value:
+    count = 0
+    for arg in args:
+        if isinstance(arg, list):
+            for item in arg:
+                if isinstance(item, (int, float)) and not isinstance(item, bool):
+                    count += 1
+            continue
+        converted = _to_number(arg)
+        if not isinstance(converted, ExcelError):
+            count += 1
+    return float(count)
+
+
+def _fn_counta(args: Sequence[Value]) -> Value:
+    count = 0
+    for arg in args:
+        if isinstance(arg, list):
+            for item in arg:
+                if item is not None and item != "":
+                    count += 1
+            continue
+        if arg is not None and arg != "":
+            count += 1
+    return float(count)
+
+
+def _to_bool(value: Value) -> Value:
+    if isinstance(value, ExcelError):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip().upper()
+    if text == "TRUE":
+        return True
+    if text == "FALSE":
+        return False
+    return VALUE
+
+
+def _logical(args: Sequence[Value], mode: str) -> Value:
+    flags: List[bool] = []
+    for arg in _flatten(args):
+        if _from_range(arg):
+            continue
+        converted = _to_bool(arg)
+        if isinstance(converted, ExcelError):
+            return converted
+        flags.append(bool(converted))
+    if not flags:
+        return VALUE
+    if mode == "and":
+        return all(flags)
+    if mode == "or":
+        return any(flags)
+    return not flags[0]
+
+
+def _fn_and(args: Sequence[Value]) -> Value:
+    return _logical(args, "and")
+
+
+def _fn_or(args: Sequence[Value]) -> Value:
+    return _logical(args, "or")
+
+
+def _fn_not(args: Sequence[Value]) -> Value:
+    return _logical(args, "not")
+
+
+def _fn_iferror(args: Sequence[Value]) -> Value:
+    if len(args) != 2:
+        return VALUE
+    return args[1] if isinstance(args[0], ExcelError) else args[0]
+
+
+def _fn_isblank(args: Sequence[Value]) -> Value:
+    if len(args) != 1:
+        return VALUE
+    return args[0] is None
+
+
+def _fn_isnumber(args: Sequence[Value]) -> Value:
+    if len(args) != 1:
+        return VALUE
+    value = args[0]
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _fn_istext(args: Sequence[Value]) -> Value:
+    if len(args) != 1:
+        return VALUE
+    return isinstance(args[0], str)
+
+
+def _text_arg(args: Sequence[Value], index: int) -> str | ExcelError:
+    if index >= len(args):
+        return VALUE
+    if isinstance(args[index], ExcelError):
+        return args[index]
+    return _to_text(args[index])
+
+
+def _fn_len(args: Sequence[Value]) -> Value:
+    text = _text_arg(args, 0)
+    return text if isinstance(text, ExcelError) else float(len(text))
+
+
+def _fn_left(args: Sequence[Value]) -> Value:
+    text = _text_arg(args, 0)
+    if isinstance(text, ExcelError):
+        return text
+    count = _to_number(args[1]) if len(args) > 1 else 1.0
+    if isinstance(count, ExcelError):
+        return count
+    if count < 0:
+        return VALUE
+    return text[: int(count)]
+
+
+def _fn_right(args: Sequence[Value]) -> Value:
+    text = _text_arg(args, 0)
+    if isinstance(text, ExcelError):
+        return text
+    count = _to_number(args[1]) if len(args) > 1 else 1.0
+    if isinstance(count, ExcelError):
+        return count
+    if count < 0:
+        return VALUE
+    if int(count) == 0:
+        return ""
+    return text[-int(count):]
+
+
+def _fn_mid(args: Sequence[Value]) -> Value:
+    text = _text_arg(args, 0)
+    if isinstance(text, ExcelError):
+        return text
+    if len(args) < 3:
+        return VALUE
+    start = _to_number(args[1])
+    count = _to_number(args[2])
+    if isinstance(start, ExcelError):
+        return start
+    if isinstance(count, ExcelError):
+        return count
+    if start < 1 or count < 0:
+        return VALUE
+    return text[int(start) - 1: int(start) - 1 + int(count)]
+
+
+def _fn_trim(args: Sequence[Value]) -> Value:
+    text = _text_arg(args, 0)
+    return text if isinstance(text, ExcelError) else " ".join(text.split())
+
+
+def _fn_upper(args: Sequence[Value]) -> Value:
+    text = _text_arg(args, 0)
+    return text if isinstance(text, ExcelError) else text.upper()
+
+
+def _fn_lower(args: Sequence[Value]) -> Value:
+    text = _text_arg(args, 0)
+    return text if isinstance(text, ExcelError) else text.lower()
+
+
+def _round_to(number: float, digits: int, mode: str) -> float:
+    factor = 10 ** digits
+    scaled = number * factor
+    if mode == "up":
+        rounded = -(-abs(scaled) // 1) * (1 if scaled >= 0 else -1)
+    elif mode == "down":
+        rounded = (abs(scaled) // 1) * (1 if scaled >= 0 else -1)
+    else:
+        return round(scaled) / factor
+    return rounded / factor
+
+
+def _fn_roundup(args: Sequence[Value]) -> Value:
+    if len(args) != 2:
+        return VALUE
+    number, digits = _to_number(args[0]), _to_number(args[1])
+    if isinstance(number, ExcelError):
+        return number
+    if isinstance(digits, ExcelError):
+        return digits
+    return _round_to(float(number), int(digits), "up")
+
+
+def _fn_rounddown(args: Sequence[Value]) -> Value:
+    if len(args) != 2:
+        return VALUE
+    number, digits = _to_number(args[0]), _to_number(args[1])
+    if isinstance(number, ExcelError):
+        return number
+    if isinstance(digits, ExcelError):
+        return digits
+    return _round_to(float(number), int(digits), "down")
+
+
+def _fn_int(args: Sequence[Value]) -> Value:
+    if len(args) != 1:
+        return VALUE
+    number = _to_number(args[0])
+    if isinstance(number, ExcelError):
+        return number
+    return float(int(float(number) // 1))
+
+
+def _fn_mod(args: Sequence[Value]) -> Value:
+    if len(args) != 2:
+        return VALUE
+    number, divisor = _to_number(args[0]), _to_number(args[1])
+    if isinstance(number, ExcelError):
+        return number
+    if isinstance(divisor, ExcelError):
+        return divisor
+    if float(divisor) == 0:
+        return DIV0
+    # Excel's MOD takes the sign of the divisor, which means flooring the quotient rather than
+    # truncating it: MOD(-3,2) is 1 because floor(-1.5) is -2, not -1.
+    return float(number) - float(divisor) * math.floor(float(number) / float(divisor))
+
+
+def _fn_sqrt(args: Sequence[Value]) -> Value:
+    if len(args) != 1:
+        return VALUE
+    number = _to_number(args[0])
+    if isinstance(number, ExcelError):
+        return number
+    if float(number) < 0:
+        return NUM
+    return float(number) ** 0.5
+
+
+def _fn_sum_ranges(args: Sequence[Value]) -> Value:
+    numbers = _numeric_operands(list(args))
+    if isinstance(numbers, ExcelError):
+        return numbers
+    return float(sum(numbers))
+
+
+FUNCTIONS.update(
+    {
+        "SUM": _fn_sum_ranges,
+        "MIN": _fn_min,
+        "MAX": _fn_max,
+        "AVERAGE": _fn_average,
+        "COUNT": _fn_count,
+        "COUNTA": _fn_counta,
+        "AND": _fn_and,
+        "OR": _fn_or,
+        "NOT": _fn_not,
+        "IFERROR": _fn_iferror,
+        "ISBLANK": _fn_isblank,
+        "ISNUMBER": _fn_isnumber,
+        "ISTEXT": _fn_istext,
+        "LEN": _fn_len,
+        "LEFT": _fn_left,
+        "RIGHT": _fn_right,
+        "MID": _fn_mid,
+        "TRIM": _fn_trim,
+        "UPPER": _fn_upper,
+        "LOWER": _fn_lower,
+        "ROUNDUP": _fn_roundup,
+        "ROUNDDOWN": _fn_rounddown,
+        "INT": _fn_int,
+        "MOD": _fn_mod,
+        "SQRT": _fn_sqrt,
+    }
+)
+
+
+def evaluate(node: Node, cells: Dict[str, Value] | None = None) -> Value:
+    """Evaluate a parsed formula in a cell context.
+
+    A range is only meaningful to a function that consumes blocks. Evaluated on its own it is not a
+    value, so it becomes #VALUE! rather than leaking a Python list into whatever called us.
+    """
+    result = _eval(node, cells)
+    return VALUE if isinstance(result, list) else result
