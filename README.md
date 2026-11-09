@@ -36,8 +36,11 @@ stays on the board after it starts passing, so the score cannot be quietly impro
 
 ## Status
 
-**Stage 0: scaffolding.** The parser and evaluator exist with 20 passing tests covering the details that "Excel-ish"
+**Stage 0: scaffolding.** The parser and evaluator exist with 39 passing tests covering the details that "Excel-ish"
 engines get wrong:
+
+**Tests:** 39
+
 
 - Excel's precedence exactly, including right-associative `^` and `-2^2 = 4` rather than `-4`
 - error **values** (`#DIV/0!`, `#NAME?`, `#VALUE!`) that propagate through arithmetic instead of raising

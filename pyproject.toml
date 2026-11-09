@@ -27,3 +27,6 @@ select = ["E", "F", "W", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A fresh checkout runs the documented command verbatim. Without this, `pytest` fails
+# collection with ModuleNotFoundError and the repo reads as broken when it is not.
+pythonpath = ["src"]
