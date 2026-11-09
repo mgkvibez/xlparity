@@ -36,10 +36,15 @@ stays on the board after it starts passing, so the score cannot be quietly impro
 
 ## Status
 
-**Stage 0: scaffolding.** The parser and evaluator exist with 39 passing tests covering the details that "Excel-ish"
+**Stage 0: scaffolding.** The parser and evaluator exist with 60 passing tests covering the details that "Excel-ish"
 engines get wrong:
 
-**Tests:** 39
+**Tests:** 60
+
+Lookups (`VLOOKUP`, `INDEX`, `MATCH`) exist with Excel's semantics rather than the convenient ones: approximate match is
+the default, text comparison ignores case, `INDEX` truncates a fractional index, "not found" is `#N/A` while "out of
+range" is `#REF!`, and the array forms (`INDEX(range,0,1)`, whole-column results) are refused with `#VALUE!` because this
+engine has no array values.
 
 
 - Excel's precedence exactly, including right-associative `^` and `-2^2 = 4` rather than `-4`

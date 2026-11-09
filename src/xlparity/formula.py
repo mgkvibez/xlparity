@@ -168,7 +168,18 @@ class Range:
 
 
 class RangeValues(list):
-    """Values read out of a Range. A list subclass, so every existing list consumer still works."""
+    """Values read out of a Range, row-major, with the block's shape recorded.
+
+    A list subclass, so every existing consumer keeps working; the shape is what lets VLOOKUP, INDEX and MATCH
+    address a cell instead of a position.
+    """
+
+    rows: int = 0
+    columns: int = 0
+
+    def cell(self, row: int, column: int) -> "Value":
+        """1-based, Excel-style access. Out of range is the caller's problem: they raise #REF!."""
+        return self[(row - 1) * self.columns + (column - 1)]
 
 
 @dataclass(frozen=True)
@@ -589,6 +600,8 @@ def _range_values(node: "Range", cells: Dict[str, Value]) -> "RangeValues":
     for row in range(top, bottom + 1):
         for column in range(first, last + 1):
             values.append(cells.get(_column_letters(column) + str(row)))
+    values.rows = bottom - top + 1
+    values.columns = last - first + 1
     return values
 
 
@@ -938,3 +951,146 @@ def evaluate(node: Node, cells: Dict[str, Value] | None = None) -> Value:
     """
     result = _eval(node, cells)
     return VALUE if isinstance(result, list) else result
+
+
+# ---------------------------------------------------------------------------
+# Lookups: the functions reimplementations diverge on most
+# ---------------------------------------------------------------------------
+
+_NA = ExcelError("#N/A")
+
+
+def _error_in(values: Sequence[Value]) -> ExcelError | None:
+    for value in values:
+        if isinstance(value, ExcelError):
+            return value
+    return None
+
+
+def _as_int(value: Value) -> Value:
+    """Excel truncates a fractional index rather than rounding it, and refuses a non-number."""
+    number = _to_number(value)
+    if isinstance(number, ExcelError):
+        return number
+    return int(float(number))
+
+
+def _match_position(lookup: Value, values: RangeValues, match_type: int) -> Value:
+    """MATCH's core: exact (0), largest <= (1, ascending), smallest >= (-1, descending)."""
+    if not isinstance(values, RangeValues):
+        return VALUE
+
+    if match_type == 0:
+        for index, candidate in enumerate(values, start=1):
+            if _compare(candidate, lookup) == 0:
+                return index
+        return _NA
+
+    best = None
+    for index, candidate in enumerate(values, start=1):
+        comparison = _compare(candidate, lookup)
+        if match_type > 0:
+            if comparison <= 0:
+                best = index
+            elif best is not None:
+                break  # ascending: the run has passed the lookup value
+        else:
+            if comparison >= 0:
+                best = index
+            elif best is not None:
+                break  # descending
+    return best if best is not None else _NA
+
+
+def _fn_match(args: Sequence[Value]) -> Value:
+    if len(args) not in (2, 3):
+        return VALUE
+    error = _error_in(args)
+    if error is not None:
+        return error
+    match_type = 1 if len(args) == 2 else _as_int(args[2])
+    if isinstance(match_type, ExcelError):
+        return match_type
+    if match_type not in (-1, 0, 1):
+        return _NA  # Excel's own behaviour for an invalid match type
+    return _match_position(args[0], args[1], match_type)
+
+
+def _fn_vlookup(args: Sequence[Value]) -> Value:
+    """VLOOKUP(lookup, table, column, [approximate = TRUE]).
+
+    Approximate is the *default* in Excel, and that is the trap: a table that is not sorted ascending silently
+    returns a wrong row rather than an error, so the caller's data is assumed sorted, as Excel assumes it.
+    """
+    if len(args) not in (3, 4):
+        return VALUE
+    error = _error_in(args[:1])
+    if error is not None:
+        return error
+
+    table = args[1]
+    if not isinstance(table, RangeValues):
+        return VALUE
+
+    column = _as_int(args[2])
+    if isinstance(column, ExcelError):
+        return column
+    if column < 1:
+        return VALUE
+    if column > table.columns:
+        return REF
+
+    approximate = True
+    if len(args) == 4:
+        flag = args[3]
+        if isinstance(flag, ExcelError):
+            return flag
+        approximate = bool(flag)
+
+    first_column = RangeValues(table.cell(row, 1) for row in range(1, table.rows + 1))
+    first_column.rows = table.rows
+    first_column.columns = 1
+
+    position = _match_position(args[0], first_column, 1 if approximate else 0)
+    if isinstance(position, ExcelError):
+        return position
+    return table.cell(position, column)
+
+
+def _fn_index(args: Sequence[Value]) -> Value:
+    """INDEX(range, row, [column]) for a 2D block, INDEX(range, position) for a single row or column.
+
+    An array result (row 0 or column 0, the whole axis) is refused rather than approximated: the engine has no
+    array values, and returning the first cell would be a confident lie.
+    """
+    if len(args) not in (2, 3):
+        return VALUE
+    block = args[0]
+    if not isinstance(block, RangeValues):
+        return VALUE
+
+    is_vector = block.rows == 1 or block.columns == 1
+    row = _as_int(args[1])
+    if isinstance(row, ExcelError):
+        return row
+    if row < 1:
+        return VALUE  # a 0 index means "the whole axis", which needs array values
+
+    if is_vector and len(args) == 2:
+        if row > max(block.rows, block.columns):
+            return REF
+        return block[row - 1]
+
+    if len(args) != 3:
+        return VALUE
+    column = _as_int(args[2])
+    if isinstance(column, ExcelError):
+        return column
+    if column < 1:
+        return VALUE
+    if row > block.rows or column > block.columns:
+        return REF
+    return block.cell(row, column)
+
+
+FUNCTIONS.update({"MATCH": _fn_match, "VLOOKUP": _fn_vlookup, "INDEX": _fn_index})
