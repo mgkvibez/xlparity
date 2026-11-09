@@ -1,0 +1,358 @@
+{
+  "entries": [
+    {
+      "function": "PREC",
+      "cohort": "core",
+      "formula": "1+2*3",
+      "inputs": {},
+      "expected": 7,
+      "source": "docs"
+    },
+    {
+      "function": "PREC",
+      "cohort": "core",
+      "formula": "(1+2)*3",
+      "inputs": {},
+      "expected": 9,
+      "source": "docs"
+    },
+    {
+      "function": "PREC",
+      "cohort": "core",
+      "formula": "-2^2",
+      "inputs": {},
+      "expected": 4,
+      "source": "docs"
+    },
+    {
+      "function": "PREC",
+      "cohort": "core",
+      "formula": "2^3^2",
+      "inputs": {},
+      "expected": 512,
+      "source": "docs"
+    },
+    {
+      "function": "PREC",
+      "cohort": "core",
+      "formula": "10/4",
+      "inputs": {},
+      "expected": 2.5,
+      "source": "docs"
+    },
+    {
+      "function": "PREC",
+      "cohort": "core",
+      "formula": "1/0",
+      "inputs": {},
+      "expected": "#DIV/0!",
+      "source": "docs"
+    },
+    {
+      "function": "PREC",
+      "cohort": "core",
+      "formula": "ROUND(2.5,0)",
+      "inputs": {},
+      "expected": 3,
+      "source": "docs"
+    },
+    {
+      "function": "PREC",
+      "cohort": "core",
+      "formula": "ROUND(-2.5,0)",
+      "inputs": {},
+      "expected": -3,
+      "source": "docs"
+    },
+    {
+      "function": "PREC",
+      "cohort": "core",
+      "formula": "ROUND(1.005,2)",
+      "inputs": {},
+      "expected": 1.0,
+      "source": "docs"
+    },
+    {
+      "function": "SUM",
+      "cohort": "core",
+      "formula": "SUM(1,2,3)",
+      "inputs": {},
+      "expected": 6,
+      "source": "docs"
+    },
+    {
+      "function": "COERCE",
+      "cohort": "text",
+      "formula": "SUM(\"abc\")",
+      "inputs": {},
+      "expected": "#VALUE!",
+      "source": "docs"
+    },
+    {
+      "function": "COERCE",
+      "cohort": "text",
+      "formula": "1&\"abc\"",
+      "inputs": {},
+      "expected": "1abc",
+      "source": "docs"
+    },
+    {
+      "function": "COERCE",
+      "cohort": "text",
+      "formula": "\"\"+1",
+      "inputs": {},
+      "expected": 1,
+      "source": "docs"
+    },
+    {
+      "function": "COERCE",
+      "cohort": "text",
+      "formula": "CONCAT(\"a\",\"b\")",
+      "inputs": {},
+      "expected": "ab",
+      "source": "docs"
+    },
+    {
+      "function": "COERCE",
+      "cohort": "text",
+      "formula": "ABS(-3)",
+      "inputs": {},
+      "expected": 3,
+      "source": "docs"
+    },
+    {
+      "function": "COERCE",
+      "cohort": "text",
+      "formula": "ISERROR(1/0)",
+      "inputs": {},
+      "expected": true,
+      "source": "docs"
+    },
+    {
+      "function": "COERCE",
+      "cohort": "text",
+      "formula": "ISERROR(1)",
+      "inputs": {},
+      "expected": false,
+      "source": "docs"
+    },
+    {
+      "function": "SUM",
+      "cohort": "common",
+      "formula": "SUM(A1:A3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 3
+      },
+      "expected": 6,
+      "source": "docs"
+    },
+    {
+      "function": "SUM",
+      "cohort": "common",
+      "formula": "SUM(A1:A3)",
+      "inputs": {
+        "A1": 1,
+        "A2": "text",
+        "A3": 3
+      },
+      "expected": 4,
+      "source": "docs"
+    },
+    {
+      "function": "MIN",
+      "cohort": "common",
+      "formula": "MIN(A1:A3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 3
+      },
+      "expected": 1,
+      "source": "docs"
+    },
+    {
+      "function": "MAX",
+      "cohort": "common",
+      "formula": "MAX(A1:A3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 3
+      },
+      "expected": 3,
+      "source": "docs"
+    },
+    {
+      "function": "AVERAGE",
+      "cohort": "common",
+      "formula": "AVERAGE(A1:A3)",
+      "inputs": {
+        "A1": 1,
+        "A2": 2,
+        "A3": 3
+      },
+      "expected": 2,
+      "source": "docs"
+    },
+    {
+      "function": "IF",
+      "cohort": "common",
+      "formula": "IF(1>0,10,20)",
+      "inputs": {},
+      "expected": 10,
+      "source": "docs"
+    },
+    {
+      "function": "IF",
+      "cohort": "common",
+      "formula": "IF(1<0,10,20)",
+      "inputs": {},
+      "expected": 20,
+      "source": "docs"
+    },
+    {
+      "function": "VLOOKUP",
+      "cohort": "common",
+      "formula": "VLOOKUP(4,A1:B3,2)",
+      "inputs": {
+        "A1": 1,
+        "A2": 3,
+        "A3": 5,
+        "B1": "one",
+        "B2": "three",
+        "B3": "five"
+      },
+      "expected": "three",
+      "source": "docs"
+    },
+    {
+      "function": "VLOOKUP",
+      "cohort": "common",
+      "formula": "VLOOKUP(4,A1:B3,2,FALSE)",
+      "inputs": {
+        "A1": 1,
+        "A2": 3,
+        "A3": 5,
+        "B1": "one",
+        "B2": "three",
+        "B3": "five"
+      },
+      "expected": "#N/A",
+      "source": "docs"
+    },
+    {
+      "function": "VLOOKUP",
+      "cohort": "common",
+      "formula": "VLOOKUP(3,A1:B3,2,FALSE)",
+      "inputs": {
+        "A1": 1,
+        "A2": 3,
+        "A3": 5,
+        "B1": "one",
+        "B2": "three",
+        "B3": "five"
+      },
+      "expected": "three",
+      "source": "docs"
+    },
+    {
+      "function": "VLOOKUP",
+      "cohort": "common",
+      "formula": "VLOOKUP(3,A1:B3,3,FALSE)",
+      "inputs": {
+        "A1": 1,
+        "A2": 3,
+        "A3": 5,
+        "B1": "one",
+        "B2": "three",
+        "B3": "five"
+      },
+      "expected": "#REF!",
+      "source": "docs"
+    },
+    {
+      "function": "MATCH",
+      "cohort": "common",
+      "formula": "MATCH(5,A1:A3,0)",
+      "inputs": {
+        "A1": 1,
+        "A2": 3,
+        "A3": 5
+      },
+      "expected": 3,
+      "source": "docs"
+    },
+    {
+      "function": "MATCH",
+      "cohort": "common",
+      "formula": "MATCH(4,A1:A3,1)",
+      "inputs": {
+        "A1": 1,
+        "A2": 3,
+        "A3": 5
+      },
+      "expected": 2,
+      "source": "docs"
+    },
+    {
+      "function": "MATCH",
+      "cohort": "common",
+      "formula": "MATCH(4,A1:A3,0)",
+      "inputs": {
+        "A1": 1,
+        "A2": 3,
+        "A3": 5
+      },
+      "expected": "#N/A",
+      "source": "docs"
+    },
+    {
+      "function": "INDEX",
+      "cohort": "common",
+      "formula": "INDEX(A1:B3,2,2)",
+      "inputs": {
+        "A1": 1,
+        "A2": 3,
+        "A3": 5,
+        "B1": "one",
+        "B2": "three",
+        "B3": "five"
+      },
+      "expected": "three",
+      "source": "docs"
+    },
+    {
+      "function": "INDEX",
+      "cohort": "common",
+      "formula": "INDEX(A1:B3,9,1)",
+      "inputs": {
+        "A1": 1,
+        "A2": 3,
+        "A3": 5,
+        "B1": "one",
+        "B2": "three",
+        "B3": "five"
+      },
+      "expected": "#REF!",
+      "source": "docs"
+    },
+    {
+      "function": "ROUND",
+      "cohort": "common",
+      "formula": "ROUND(3.14159,2)",
+      "inputs": {},
+      "expected": 3.14,
+      "source": "docs"
+    },
+    {
+      "function": "ROUND",
+      "cohort": "common",
+      "formula": "ROUND(1234.5678,-2)",
+      "inputs": {},
+      "expected": 1200,
+      "source": "docs"
+    }
+  ]
+}

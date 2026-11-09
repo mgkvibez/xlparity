@@ -359,6 +359,9 @@ def _to_number(value: Value) -> Value:
     if isinstance(value, (int, float)):
         return value
     text = str(value).strip()
+    if text == "":
+        # Excel coerces an empty string to 0 in arithmetic (=""+1 is 1), while "abc"+1 is #VALUE!
+        return 0
     try:
         return float(text)
     except ValueError:

@@ -40,6 +40,28 @@ total.
 Separate from calculation: open a real XLSX, write it back untouched, and diff the re-saved file against the original.
 Charts, pivot caches, conditional formats and defined names must survive. Any loss is listed by element name.
 
+## The current score
+
+<!-- BEGIN GENERATED: scoreboard -->
+
+**Expectation provenance:** 35 docs. `docs` means Microsoft's documented
+semantics; `excel` means captured from Excel and frozen. No `docs` entry claims to be one.
+
+| cohort | passing | total | score |
+| --- | --- | --- | --- |
+| 1. Core arithmetic and precedence | 10 | 10 | 100.0% |
+| 2. Text, comparison and coercion | 7 | 7 | 100.0% |
+| 3. Common functions | 18 | 18 | 100.0% |
+| 4. Obscure financial | 0 | 0 | n/a |
+| 5. Dynamic arrays | 0 | 0 | n/a |
+
+**All cohorts:** 35 of 35 formulas match (100.0%).
+
+Every corpus formula matches. The corpus is grown, never trimmed, so this is only
+true until the next difficult formula is added.
+
+<!-- END GENERATED: scoreboard -->
+
 ## Rule
 
 The corpus is grown, never trimmed. A failing formula stays in the scoreboard after it starts passing, so the score stays

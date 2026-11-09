@@ -29,9 +29,11 @@ stays on the board after it starts passing, so the score cannot be quietly impro
 
 ## What does not work yet
 
-- No scoreboard yet: `docs/scoreboard.md` defines the metric, but nothing computes it.
-- Dynamic arrays and spilling, lookup functions (VLOOKUP/XLOOKUP/FILTER), financial functions, and XLSX reading
-  are all absent.
+- The scoreboard is real but thin: 35 corpus formulas, and every expectation is tagged `docs` (Microsoft's documented
+  semantics) rather than `excel` (a frozen capture). Cohorts 4 and 5 are empty, so financial functions and dynamic
+  arrays are still absent, as are XLOOKUP/FILTER and XLSX reading.
+- No round-trip fidelity measurement yet: the second half of the metric, re-saving an untouched XLSX and diffing it, is
+  defined but unbuilt.
 - No locale handling: Excel's separators and formats vary by locale, and this engine assumes the English one.
 
 ## Status
@@ -39,7 +41,7 @@ stays on the board after it starts passing, so the score cannot be quietly impro
 **Stage 0: scaffolding.** The parser and evaluator exist with 60 passing tests covering the details that "Excel-ish"
 engines get wrong:
 
-**Tests:** 60
+**Tests:** 61
 
 Lookups (`VLOOKUP`, `INDEX`, `MATCH`) exist with Excel's semantics rather than the convenient ones: approximate match is
 the default, text comparison ignores case, `INDEX` truncates a fractional index, "not found" is `#N/A` while "out of

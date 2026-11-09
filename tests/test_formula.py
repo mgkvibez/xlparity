@@ -100,3 +100,11 @@ def test_unterminated_string_raises():
 
 def test_error_compares_as_text_like_excel():
     assert value('1/0="x"').code == "#DIV/0!"
+
+
+def test_an_empty_string_coerces_to_zero_in_arithmetic():
+    # Excel: =""+1 is 1. Text that is not numeric at all is still #VALUE!.
+    assert value('""+1') == 1
+    assert value('""*3') == 0
+    error = value('"abc"+1')
+    assert isinstance(error, ExcelError) and error.code == "#VALUE!"
