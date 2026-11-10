@@ -11,6 +11,7 @@ grows function by function, each measured against Excel's own output rather than
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 from dataclasses import dataclass
@@ -35,6 +36,8 @@ VALUE = ExcelError("#VALUE!")
 NAME = ExcelError("#NAME?")
 REF = ExcelError("#REF!")
 NUM = ExcelError("#NUM!")
+CALC = ExcelError("#CALC!")
+SPILL = ExcelError("#SPILL!")
 
 
 class FormulaError(Exception):
@@ -176,6 +179,9 @@ class RangeValues(list):
 
     rows: int = 0
     columns: int = 0
+    # True when a function computed these cells rather than them being read out of a range. Such a result
+    # wants cells of its own, which is what separates a spill from a range used where a value was asked for.
+    spills: bool = False
 
     def cell(self, row: int, column: int) -> "Value":
         """1-based, Excel-style access. Out of range is the caller's problem: they raise #REF!."""
@@ -949,11 +955,18 @@ FUNCTIONS.update(
 def evaluate(node: Node, cells: Dict[str, Value] | None = None) -> Value:
     """Evaluate a parsed formula in a cell context.
 
-    A range is only meaningful to a function that consumes blocks. Evaluated on its own it is not a
-    value, so it becomes #VALUE! rather than leaking a Python list into whatever called us.
+    A range is only meaningful to a function that consumes blocks. Evaluated on its own it is not a value,
+    so it becomes #VALUE! rather than leaking a Python list into whatever called us.
+
+    An array a function computed is a different case and gets a different answer: it has cells it wants to
+    occupy, and this engine evaluates one formula in one cell, so it is #SPILL!. The difference is worth
+    keeping: #VALUE! would suggest the arguments were wrong when the formula is right and the sheet is
+    missing.
     """
     result = _eval(node, cells)
-    return VALUE if isinstance(result, list) else result
+    if isinstance(result, list):
+        return SPILL if getattr(result, "spills", False) else VALUE
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1063,8 +1076,9 @@ def _fn_vlookup(args: Sequence[Value]) -> Value:
 def _fn_index(args: Sequence[Value]) -> Value:
     """INDEX(range, row, [column]) for a 2D block, INDEX(range, position) for a single row or column.
 
-    An array result (row 0 or column 0, the whole axis) is refused rather than approximated: the engine has no
-    array values, and returning the first cell would be a confident lie.
+    A zero index means the whole axis, which is an array result. The engine has array values, so the axis is
+    returned whole rather than approximated by its first cell; what it does not have is somewhere to put the
+    result, so a spilled INDEX has to be consumed by something that takes an array.
     """
     if len(args) not in (2, 3):
         return VALUE
@@ -1076,10 +1090,12 @@ def _fn_index(args: Sequence[Value]) -> Value:
     row = _as_int(args[1])
     if isinstance(row, ExcelError):
         return row
-    if row < 1:
-        return VALUE  # a 0 index means "the whole axis", which needs array values
+    if row < 0:
+        return VALUE
 
     if is_vector and len(args) == 2:
+        if row == 0:
+            return _array(block.rows, block.columns, list(block))
         if row > max(block.rows, block.columns):
             return REF
         return block[row - 1]
@@ -1089,14 +1105,204 @@ def _fn_index(args: Sequence[Value]) -> Value:
     column = _as_int(args[2])
     if isinstance(column, ExcelError):
         return column
-    if column < 1:
+    if column < 0:
         return VALUE
     if row > block.rows or column > block.columns:
         return REF
+    if row == 0 and column == 0:
+        return _array(block.rows, block.columns, list(block))
+    if row == 0:
+        return _array(block.rows, 1, [block.cell(each, column) for each in range(1, block.rows + 1)])
+    if column == 0:
+        return _array(1, block.columns, [block.cell(row, each) for each in range(1, block.columns + 1)])
     return block.cell(row, column)
 
 
 FUNCTIONS.update({"MATCH": _fn_match, "VLOOKUP": _fn_vlookup, "INDEX": _fn_index})
+
+
+# ---------------------------------------------------------------------------
+# Array values: SEQUENCE, UNIQUE, SORT and FILTER
+# ---------------------------------------------------------------------------
+#
+# These return an array rather than a scalar, which is the half of dynamic arrays that lives inside one
+# formula: SUM(SEQUENCE(5)) is 15 and needs no spilling to be true. The other half, the cells a result
+# occupies and the `#` operator that names them, is not modelled: a formula here is evaluated in one cell,
+# and a spilled result has nowhere to land.
+
+
+def _array(rows: int, columns: int, values: List[Value]) -> "RangeValues":
+    """An array value: the shape, then the cells, row-major, so INDEX and the aggregates can address it."""
+    block = RangeValues(values)
+    block.rows = rows
+    block.columns = columns
+    block.spills = True
+    return block
+
+
+def _array_items(value: Value) -> "List[Value] | ExcelError":
+    """The scalars of an array value, or a refusal.
+
+    A scalar is not an array: UNIQUE(3) is a mistake in the spreadsheet, and #VALUE! is what Excel says about
+    arguments of the wrong kind rather than a guess at what the author meant.
+    """
+    if isinstance(value, ExcelError):
+        return value
+    if isinstance(value, RangeValues):
+        return list(value)
+    return VALUE
+
+
+def _flag(value: Value) -> "bool | ExcelError":
+    """FILTER's include argument: a number is true when nonzero, and text only when it says TRUE."""
+    if isinstance(value, ExcelError):
+        return value
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        word = value.strip().upper()
+        if word == "TRUE":
+            return True
+        if word in ("FALSE", ""):
+            return False
+        return VALUE
+    return float(value) != 0.0
+
+
+def _fn_sequence(args: Sequence[Value]) -> Value:
+    """SEQUENCE(rows, [columns], [start], [step]): the numbers Excel would spill from this cell.
+
+    An empty array is #CALC!, which is the error for a formula whose result is nothing at all, and is what
+    separates SEQUENCE(0) from a formula that is merely wrong.
+    """
+    if not 1 <= len(args) <= 4:
+        return VALUE
+    rows = _as_int(args[0])
+    if isinstance(rows, ExcelError):
+        return rows
+    columns = _as_int(args[1]) if len(args) > 1 else 1
+    if isinstance(columns, ExcelError):
+        return columns
+    start: Value = 1.0
+    if len(args) > 2:
+        start = _to_number(args[2])
+        if isinstance(start, ExcelError):
+            return start
+    step: Value = 1.0
+    if len(args) > 3:
+        step = _to_number(args[3])
+        if isinstance(step, ExcelError):
+            return step
+    if rows < 1 or columns < 1:
+        return CALC
+    values = [float(start) + float(step) * position for position in range(rows * columns)]
+    return _array(rows, columns, values)
+
+
+def _fn_unique(args: Sequence[Value]) -> Value:
+    """UNIQUE(array, [by_column]): the values once each, in the order they first appear.
+
+    Order matters and is not incidental: Excel keeps first appearance rather than sorting, so UNIQUE and SORT
+    compose in the order they are written rather than in a fixed one.
+    """
+    if not 1 <= len(args) <= 2:
+        return VALUE
+    if len(args) == 2:
+        by_column = _flag(args[1])
+        if isinstance(by_column, ExcelError):
+            return by_column
+        if by_column:
+            # de-duplicating columns compares whole columns, which needs a matrix walk this does not do yet
+            return VALUE
+    items = _array_items(args[0])
+    if isinstance(items, ExcelError):
+        return items
+    unique: List[Value] = []
+    for item in items:
+        if isinstance(item, ExcelError):
+            return item
+        if not any(_compare(item, seen) == 0 for seen in unique):
+            unique.append(item)
+    if not unique:
+        return CALC
+    return _array(len(unique), 1, unique)
+
+
+def _fn_sort(args: Sequence[Value]) -> Value:
+    """SORT(array, [sort_index], [sort_order], [by_column]) for an array of one row or one column.
+
+    The comparison is the engine's own, so numbers sort before text and blanks last: Excel's order, and the
+    one UNIQUE and MATCH already share.
+    """
+    if not 1 <= len(args) <= 4:
+        return VALUE
+    if len(args) > 1 and args[1] is not None:
+        index = _as_int(args[1])
+        if isinstance(index, ExcelError):
+            return index
+        if index != 1:
+            return VALUE  # an array of one row or one column has one sort column
+    order = 1
+    if len(args) > 2:
+        order = _as_int(args[2])
+        if isinstance(order, ExcelError):
+            return order
+        if order not in (1, -1):
+            return VALUE
+    if len(args) > 3:
+        by_column = _flag(args[3])
+        if isinstance(by_column, ExcelError):
+            return by_column
+        if by_column:
+            return VALUE
+    items = _array_items(args[0])
+    if isinstance(items, ExcelError):
+        return items
+    for item in items:
+        if isinstance(item, ExcelError):
+            return item
+    ordered = sorted(items, key=functools.cmp_to_key(_compare))
+    if order == -1:
+        ordered.reverse()
+    if not ordered:
+        return CALC
+    return _array(len(ordered), 1, ordered)
+
+
+def _fn_filter(args: Sequence[Value]) -> Value:
+    """FILTER(array, include, [if_empty]): the values whose flag is true, in order.
+
+    Excel's include argument is usually a comparison written against a range, which is an array of booleans.
+    This engine has no broadcasting, so include has to be a range of its own: one flag per value, in the same
+    shape.
+    """
+    if not 2 <= len(args) <= 3:
+        return VALUE
+    items = _array_items(args[0])
+    if isinstance(items, ExcelError):
+        return items
+    flags = _array_items(args[1])
+    if isinstance(flags, ExcelError):
+        return flags
+    if len(flags) != len(items):
+        return VALUE
+    kept: List[Value] = []
+    for item, flag in zip(items, flags):
+        truth = _flag(flag)
+        if isinstance(truth, ExcelError):
+            return truth
+        if truth:
+            kept.append(item)
+    if not kept:
+        return args[2] if len(args) == 3 else CALC
+    return _array(len(kept), 1, kept)
+
+
+FUNCTIONS.update(
+    {"SEQUENCE": _fn_sequence, "UNIQUE": _fn_unique, "SORT": _fn_sort, "FILTER": _fn_filter}
+)
 
 
 # ---------------------------------------------------------------------------

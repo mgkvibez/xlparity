@@ -30,7 +30,30 @@ stays on the board after it starts passing, so the score cannot be quietly impro
   `XIRR` solve for the root and refuse `#NUM!` when a cash flow has none, `DB` rounds its rate to three decimals before
   depreciating (that rounding is the definition, not a tidy-up), and `DDB` stops at salvage rather than following its
   formula past it.
-- 115 tests.
+- `SEQUENCE`, `UNIQUE`, `SORT` and `FILTER` return real array values, so `SUM(SEQUENCE(5))` is 15, `INDEX(SORT(A1:A4),1)` is
+  the smallest value, and `SUM(FILTER(A1:A4,B1:B4))` adds only the flagged rows. A computed array that reaches the top of a
+  formula is `#SPILL!`, not `#VALUE!`.
+- 135 tests.
+
+## Dynamic arrays, and the half of them that needs a sheet
+
+A dynamic array is two things: a value, and a place to put it. The value is here. `SEQUENCE(4)` is four numbers and
+`SUM` of them is 10 whether or not anything spills, which makes the inside-a-formula half genuinely testable without a
+grid.
+
+The place is not. This engine evaluates one formula for one cell, so a result that wants several cells has nowhere to land,
+and the honest error for that is `#SPILL!`: the formula is right and the sheet is missing. `#VALUE!` would have said the
+opposite, so the two cases are kept apart, and a bare range reference still answers `#VALUE!` because a range used where a
+value was asked for is a different mistake from an array that could not be placed.
+
+Three limits, stated rather than discovered later:
+
+1. There is no broadcasting, so `FILTER(A1:A10, B1:B10>5)` cannot be written. The include argument has to be a range of
+   its own, one flag per value: `FILTER(A1:A10,B1:B10)` where the flags are already in column B. That is the arrangement
+   the function needs; it is not the arrangement people write.
+2. `UNIQUE` and `SORT` handle an array of one row or one column. De-duplicating rows of a matrix, or sorting by its second
+   column, needs a walk this does not do, and is `#VALUE!` rather than the first column's answer.
+3. `#` is not a reference operator here. `A1#` is a syntax error, and the cells a spill occupies do not exist to name.
 
 ## Reading Excel rather than imitating it
 
@@ -79,15 +102,15 @@ claim this repository cannot make on this machine.
 
 ## Status
 
-**Stage 0: scaffolding.** The parser and evaluator exist with 115 passing tests covering the details that "Excel-ish"
+**Stage 0: scaffolding.** The parser and evaluator exist with 135 passing tests covering the details that "Excel-ish"
 engines get wrong:
 
-**Tests:** 115
+**Tests:** 135
 
 Lookups (`VLOOKUP`, `INDEX`, `MATCH`) exist with Excel's semantics rather than the convenient ones: approximate match is
 the default, text comparison ignores case, `INDEX` truncates a fractional index, "not found" is `#N/A` while "out of
-range" is `#REF!`, and the array forms (`INDEX(range,0,1)`, whole-column results) are refused with `#VALUE!` because this
-engine has no array values.
+range" is `#REF!`, and the array forms (`INDEX(range,0,1)`, whole-column results) now return the whole axis, because the
+engine has array values and returning the first cell of an axis would be a confident lie.
 
 
 - Excel's precedence exactly, including right-associative `^` and `-2^2 = 4` rather than `-4`
@@ -122,7 +145,8 @@ current was false; it is enforced now.
    formulas with their cached values, defined names, and both date systems. Not yet: array and shared formulas, and
    anything a chart or pivot carries.
 5. **XLSX writer with round-trip fidelity**: charts, pivots, conditional formats preserved or listed as lost by name.
-6. **Dynamic arrays**: spill semantics, `#` operator, `FILTER`/`SORT`/`UNIQUE`/`SEQUENCE`.
+6. **Dynamic arrays**: `FILTER`/`SORT`/`UNIQUE`/`SEQUENCE` and `INDEX`'s whole-axis forms are done, as values inside a
+   formula. Not done: the cells a result spills into and the `#` operator that names them, which need a sheet.
 
 ## Non-goals
 

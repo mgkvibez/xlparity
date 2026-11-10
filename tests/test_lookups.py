@@ -91,9 +91,14 @@ class TestIndex:
     def test_out_of_range_column_is_a_reference_error(self):
         assert code(run("INDEX(A1:B4,1,9)")) == "#REF!"
 
-    def test_zero_index_is_refused_because_it_needs_array_values(self):
-        # INDEX(range,0,1) means "the whole first column" in Excel: an array, which this engine does not have
-        assert code(run("INDEX(A1:B4,0,1)")) == "#VALUE!"
+    def test_a_zero_index_returns_the_whole_axis_now_that_array_values_exist(self):
+        # INDEX(range,0,1) is "the whole first column" in Excel: an array, which is a value the engine now has
+        cells = {"A1": 1, "B1": 9, "A2": 2, "B2": 8, "A3": 3, "B3": 7, "A4": 4, "B4": 6}
+        assert run("SUM(INDEX(A1:B4,0,1))", cells) == 10
+        assert run("SUM(INDEX(A1:B4,2,0))", cells) == 10
+        assert run("SUM(INDEX(A1:B4,0,0))", cells) == 40
+        # a negative index is still not a thing
+        assert code(run("INDEX(A1:B4,-1,1)")) == "#VALUE!"
 
     def test_a_blank_cell_comes_back_as_zero_in_a_numeric_context(self):
         cells = {"A1": 1, "B1": None, "A2": 2, "B2": 4}
