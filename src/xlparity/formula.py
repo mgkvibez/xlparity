@@ -1097,3 +1097,269 @@ def _fn_index(args: Sequence[Value]) -> Value:
 
 
 FUNCTIONS.update({"MATCH": _fn_match, "VLOOKUP": _fn_vlookup, "INDEX": _fn_index})
+
+
+# ---------------------------------------------------------------------------
+# Financial functions: cohort 4, where "Excel-ish" engines stop
+# ---------------------------------------------------------------------------
+#
+# Two things here are deliberate. First, NPV is defined with period 1 on the first value, not period 0,
+# which is the single most common reimplementation bug: Excel discounts the first cash flow by one whole
+# period, so an engine that starts at zero is off by exactly the first term. Second, IRR and XIRR are
+# solved rather than approximated: the root is found by Newton from the guess, then by a bracketed scan
+# when Newton wanders, and a cash flow with no root is refused with #NUM! instead of returning a number
+# that merely looks like a rate.
+
+_ROOT_LOW = -0.999_999
+_ROOT_HIGH = 1_000_000.0
+
+
+def _solve(f, guess: float) -> float | None:
+    """A rate r > -1 with f(r) = 0, or None.
+
+    Newton first, because that is what Excel does and the guess is the caller's hint. The scan is a
+    fallback for the cases where Newton's derivative is useless: a cash flow with several sign changes,
+    or a guess sitting at a plateau. Nothing here returns "close": either a root survives the residual
+    check or the answer is None.
+    """
+    r = min(max(guess, _ROOT_LOW), _ROOT_HIGH)
+    for _ in range(100):
+        f0 = f(r)
+        step = (f(r + 1e-7) - f(r - 1e-7)) / 2e-7
+        if not math.isfinite(f0) or not math.isfinite(step) or step == 0:
+            break
+        nxt = r - f0 / step
+        if not math.isfinite(nxt) or nxt <= _ROOT_LOW or nxt > _ROOT_HIGH:
+            break
+        if abs(nxt - r) <= 1e-15 * max(1.0, abs(r)):
+            r = nxt
+            return r if abs(f(r)) < 1e-6 else None
+        r = nxt
+    else:
+        if abs(f(r)) < 1e-6:
+            return r
+
+    grid = [_ROOT_LOW] + [10.0 ** (exponent / 10.0) - 1.0 for exponent in range(-60, 61)]
+    previous = None
+    brackets = []
+    for candidate in grid:
+        value = f(candidate)
+        if not math.isfinite(value):
+            previous = None
+            continue
+        if value == 0.0:
+            return candidate
+        if previous is not None and (previous[1] < 0) != (value < 0):
+            brackets.append((previous[0], candidate))
+        previous = (candidate, value)
+    if not brackets:
+        return None
+    low, high = min(brackets, key=lambda pair: abs((pair[0] + pair[1]) / 2 - guess))
+    for _ in range(300):
+        middle = (low + high) / 2
+        if f(middle) == 0.0 or (high - low) <= 1e-16 * max(1.0, abs(middle)):
+            return middle
+        if (f(low) < 0) != (f(middle) < 0):
+            high = middle
+        else:
+            low = middle
+    return (low + high) / 2
+
+
+def _rate_guess(args: Sequence[Value], index: int) -> float | ExcelError:
+    if len(args) <= index:
+        return 0.1  # Excel's documented default
+    guess = _to_number(args[index])
+    if isinstance(guess, ExcelError):
+        return guess
+    if float(guess) <= -1:
+        return NUM
+    return float(guess)
+
+
+def _cash_flows(args: Sequence[Value], index: int) -> List[float] | ExcelError:
+    if len(args) <= index:
+        return VALUE
+    numbers = _numeric_operands([args[index]])
+    if isinstance(numbers, ExcelError):
+        return numbers
+    return numbers
+
+
+def _fn_npv(args: Sequence[Value]) -> Value:
+    """NPV(rate, value1, ...) = sum of value_i / (1+rate)^i, with i starting at 1."""
+    if len(args) < 2:
+        return VALUE
+    rate = _to_number(args[0])
+    if isinstance(rate, ExcelError):
+        return rate
+    if float(rate) == -1.0:
+        return DIV0
+    numbers = _numeric_operands(list(args[1:]))
+    if isinstance(numbers, ExcelError):
+        return numbers
+    return float(sum(value / (1.0 + float(rate)) ** period for period, value in enumerate(numbers, start=1)))
+
+
+def _fn_irr(args: Sequence[Value]) -> Value:
+    if len(args) not in (1, 2):
+        return VALUE
+    flows = _cash_flows(args, 0)
+    if isinstance(flows, ExcelError):
+        return flows
+    guess = _rate_guess(args, 1)
+    if isinstance(guess, ExcelError):
+        return guess
+    if not flows or min(flows) >= 0 or max(flows) <= 0:
+        return NUM  # a series that never changes sign has no rate of return
+
+    def npv_at(rate: float) -> float:
+        return sum(value / (1.0 + rate) ** period for period, value in enumerate(flows))
+
+    root = _solve(npv_at, guess)
+    return NUM if root is None else float(root)
+
+
+def _date_serial(value: Value) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _fn_xirr(args: Sequence[Value]) -> Value:
+    """XIRR(values, dates, [guess]): irregular cash flows, actual days, 365-day year."""
+    if len(args) not in (2, 3):
+        return VALUE
+    flows = args[0]
+    dates = args[1]
+    if not isinstance(flows, RangeValues) or not isinstance(dates, RangeValues):
+        return VALUE
+    if len(flows) != len(dates):
+        return NUM  # Excel refuses a length mismatch outright
+    pairs: List[Tuple[float, float]] = []
+    for value, date in zip(flows, dates):
+        amount = _date_serial(value)
+        serial = _date_serial(date)
+        if amount is None or serial is None:
+            continue  # text and blanks are not cash flows
+        pairs.append((amount, serial))
+    if len(pairs) < 2:
+        return NUM
+    guess = _rate_guess(args, 2)
+    if isinstance(guess, ExcelError):
+        return guess
+    amounts = [amount for amount, _ in pairs]
+    if min(amounts) >= 0 or max(amounts) <= 0:
+        return NUM
+    start = pairs[0][1]
+    years = [(serial - start) / 365.0 for _, serial in pairs]
+
+    def npv_at(rate: float) -> float:
+        return sum(amount / (1.0 + rate) ** year for amount, year in zip(amounts, years))
+
+    root = _solve(npv_at, guess)
+    return NUM if root is None else float(root)
+
+
+def _depreciation_args(args: Sequence[Value], count: int) -> List[float] | ExcelError:
+    if len(args) != count:
+        return VALUE
+    numbers = []
+    for arg in args:
+        number = _to_number(arg)
+        if isinstance(number, ExcelError):
+            return number
+        numbers.append(float(number))
+    return numbers
+
+
+def _fn_sln(args: Sequence[Value]) -> Value:
+    """SLN(cost, salvage, life): the straight line, and nothing more."""
+    numbers = _depreciation_args(args, 3)
+    if isinstance(numbers, ExcelError):
+        return numbers
+    cost, salvage, life = numbers
+    if life == 0:
+        return DIV0
+    if life < 0:
+        return NUM
+    return (cost - salvage) / life
+
+
+def _fn_syd(args: Sequence[Value]) -> Value:
+    """SYD(cost, salvage, life, period): sum-of-years digits, front-loaded."""
+    numbers = _depreciation_args(args, 4)
+    if isinstance(numbers, ExcelError):
+        return numbers
+    cost, salvage, life, period = numbers
+    if life <= 0 or period < 1 or period > life:
+        return NUM
+    return (cost - salvage) * (life - period + 1) * 2 / (life * (life + 1))
+
+
+def _round_half_away(number: float, places: int) -> float:
+    """Excel's ROUND, which is half away from zero, and which DB depends on for its rate."""
+    factor = 10**places
+    return math.copysign(math.floor(abs(number) * factor + 0.5) / factor, number)
+
+
+def _fn_db(args: Sequence[Value]) -> Value:
+    """DB(cost, salvage, life, period, [month = 12]): fixed-declining balance with a prorated first year."""
+    if len(args) not in (4, 5):
+        return VALUE
+    numbers = _depreciation_args(list(args) + ([12.0] if len(args) == 4 else []), 5)
+    if isinstance(numbers, ExcelError):
+        return numbers
+    cost, salvage, life, period, month = numbers
+    if cost < 0 or salvage < 0 or life <= 0 or period < 1 or not 1 <= month <= 12:
+        return NUM
+    if period > life + 1:
+        return NUM
+    if cost == 0:
+        return 0.0
+    # the rate is rounded to three decimals, and that rounding is part of the definition, not a detail
+    rate = _round_half_away(1 - (salvage / cost) ** (1.0 / life), 3)
+    total = 0.0
+    for current in range(1, int(period) + 1):
+        if current == 1:
+            depreciation = cost * rate * month / 12
+        elif current <= int(life):
+            depreciation = (cost - total) * rate
+        else:
+            depreciation = (cost - total) * rate * (12 - month) / 12
+        total += depreciation
+    return float(depreciation)
+
+
+def _fn_ddb(args: Sequence[Value]) -> Value:
+    """DDB(cost, salvage, life, period, [factor = 2]): double declining balance, floored at salvage."""
+    if len(args) not in (4, 5):
+        return VALUE
+    numbers = _depreciation_args(list(args) + ([2.0] if len(args) == 4 else []), 5)
+    if isinstance(numbers, ExcelError):
+        return numbers
+    cost, salvage, life, period, factor = numbers
+    if cost < 0 or salvage < 0 or life <= 0 or period < 1 or period > life or factor <= 0:
+        return NUM
+    book = cost
+    depreciation = 0.0
+    for _ in range(int(period)):
+        # never depreciate below salvage: that cap is why the last year is not just book * factor / life
+        depreciation = min(book * factor / life, book - salvage)
+        if depreciation < 0:
+            depreciation = 0.0
+        book -= depreciation
+    return float(depreciation)
+
+
+FUNCTIONS.update(
+    {
+        "NPV": _fn_npv,
+        "IRR": _fn_irr,
+        "XIRR": _fn_xirr,
+        "SLN": _fn_sln,
+        "SYD": _fn_syd,
+        "DB": _fn_db,
+        "DDB": _fn_ddb,
+    }
+)

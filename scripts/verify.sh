@@ -6,3 +6,4 @@ cd "$(dirname "$0")/.."
 python -m ruff check .
 python -m pytest -q
 python tools/check_test_count.py
+python tools/scoreboard.py

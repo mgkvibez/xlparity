@@ -44,18 +44,21 @@ Charts, pivot caches, conditional formats and defined names must survive. Any lo
 
 <!-- BEGIN GENERATED: scoreboard -->
 
-**Expectation provenance:** 35 docs. `docs` means Microsoft's documented
-semantics; `excel` means captured from Excel and frozen. No `docs` entry claims to be one.
+**Expectation provenance:** 25 derived, 35 docs. `docs` means Microsoft's documented
+semantics; `excel` means captured from Excel and frozen; `derived` means computed here
+from the documented closed form with exact rational arithmetic, which is a second
+implementation of the definition rather than a capture of Excel's own result. No `docs`
+or `derived` entry claims to be an `excel` capture.
 
 | cohort | passing | total | score |
 | --- | --- | --- | --- |
 | 1. Core arithmetic and precedence | 10 | 10 | 100.0% |
 | 2. Text, comparison and coercion | 7 | 7 | 100.0% |
 | 3. Common functions | 18 | 18 | 100.0% |
-| 4. Obscure financial | 0 | 0 | n/a |
+| 4. Obscure financial | 25 | 25 | 100.0% |
 | 5. Dynamic arrays | 0 | 0 | n/a |
 
-**All cohorts:** 35 of 35 formulas match (100.0%).
+**All cohorts:** 60 of 60 formulas match (100.0%).
 
 Every corpus formula matches. The corpus is grown, never trimmed, so this is only
 true until the next difficult formula is added.

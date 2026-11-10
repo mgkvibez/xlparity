@@ -353,6 +353,261 @@
       "inputs": {},
       "expected": 1200,
       "source": "docs"
+    },
+    {
+      "function": "NPV",
+      "cohort": "financial",
+      "formula": "NPV(0.05,100,200,300)",
+      "inputs": {},
+      "expected": 535.795270489148,
+      "source": "derived"
+    },
+    {
+      "function": "NPV",
+      "cohort": "financial",
+      "formula": "NPV(0,A1:A3)",
+      "inputs": {
+        "A1": 100,
+        "A2": 200,
+        "A3": 300
+      },
+      "expected": 600,
+      "source": "derived"
+    },
+    {
+      "function": "NPV",
+      "cohort": "financial",
+      "formula": "NPV(0.1,A1:A3)",
+      "inputs": {
+        "A1": -1000,
+        "A2": 2000,
+        "A3": 3000
+      },
+      "expected": 2997.7460555972953,
+      "source": "derived"
+    },
+    {
+      "function": "NPV",
+      "cohort": "financial",
+      "formula": "NPV(0.08,A1:A4)",
+      "inputs": {
+        "A1": 5000,
+        "A2": 5000,
+        "A3": 5000,
+        "A4": 5000
+      },
+      "expected": 16560.634200221662,
+      "source": "derived"
+    },
+    {
+      "function": "IRR",
+      "cohort": "financial",
+      "formula": "IRR(A1:A2)",
+      "inputs": {
+        "A1": -1000,
+        "A2": 1100
+      },
+      "expected": 0.1,
+      "source": "derived"
+    },
+    {
+      "function": "IRR",
+      "cohort": "financial",
+      "formula": "IRR(A1:A5)",
+      "inputs": {
+        "A1": -1000,
+        "A2": 300,
+        "A3": 300,
+        "A4": 300,
+        "A5": 300
+      },
+      "expected": 0.07713847295208354,
+      "source": "derived"
+    },
+    {
+      "function": "IRR",
+      "cohort": "financial",
+      "formula": "IRR(A1:A6)",
+      "inputs": {
+        "A1": -70000,
+        "A2": 12000,
+        "A3": 15000,
+        "A4": 18000,
+        "A5": 21000,
+        "A6": 26000
+      },
+      "expected": 0.0866309480365316,
+      "source": "derived"
+    },
+    {
+      "function": "IRR",
+      "cohort": "financial",
+      "formula": "IRR(A1:A2)",
+      "inputs": {
+        "A1": 100,
+        "A2": 200
+      },
+      "expected": "#NUM!",
+      "source": "derived"
+    },
+    {
+      "function": "XIRR",
+      "cohort": "financial",
+      "formula": "XIRR(A1:A3,B1:B3)",
+      "inputs": {
+        "A1": -1000,
+        "A2": 500,
+        "A3": 700,
+        "B1": 1,
+        "B2": 183,
+        "B3": 366
+      },
+      "expected": 0.261836429427173,
+      "source": "derived"
+    },
+    {
+      "function": "XIRR",
+      "cohort": "financial",
+      "formula": "XIRR(A1:A4,B1:B4)",
+      "inputs": {
+        "A1": -5000,
+        "A2": 1500,
+        "A3": 2500,
+        "A4": 3000,
+        "B1": 43831,
+        "B2": 43922,
+        "B3": 44013,
+        "B4": 44105
+      },
+      "expected": 0.861702078449883,
+      "source": "derived"
+    },
+    {
+      "function": "XIRR",
+      "cohort": "financial",
+      "formula": "XIRR(A1:A3,B1:B3)",
+      "inputs": {
+        "A1": 100,
+        "A2": 200,
+        "A3": 300,
+        "B1": 1,
+        "B2": 100,
+        "B3": 200
+      },
+      "expected": "#NUM!",
+      "source": "derived"
+    },
+    {
+      "function": "SLN",
+      "cohort": "financial",
+      "formula": "SLN(30000,7500,10)",
+      "inputs": {},
+      "expected": 2250,
+      "source": "derived"
+    },
+    {
+      "function": "SLN",
+      "cohort": "financial",
+      "formula": "SLN(1000,100,0)",
+      "inputs": {},
+      "expected": "#DIV/0!",
+      "source": "derived"
+    },
+    {
+      "function": "SYD",
+      "cohort": "financial",
+      "formula": "SYD(30000,7500,10,1)",
+      "inputs": {},
+      "expected": 4090.909090909091,
+      "source": "derived"
+    },
+    {
+      "function": "SYD",
+      "cohort": "financial",
+      "formula": "SYD(30000,7500,10,10)",
+      "inputs": {},
+      "expected": 409.09090909090907,
+      "source": "derived"
+    },
+    {
+      "function": "SYD",
+      "cohort": "financial",
+      "formula": "SYD(30000,7500,10,11)",
+      "inputs": {},
+      "expected": "#NUM!",
+      "source": "derived"
+    },
+    {
+      "function": "DB",
+      "cohort": "financial",
+      "formula": "DB(1000000,100000,6,1)",
+      "inputs": {},
+      "expected": 319000.0,
+      "source": "derived"
+    },
+    {
+      "function": "DB",
+      "cohort": "financial",
+      "formula": "DB(1000000,100000,6,2)",
+      "inputs": {},
+      "expected": 217239.0,
+      "source": "derived"
+    },
+    {
+      "function": "DB",
+      "cohort": "financial",
+      "formula": "DB(1000000,100000,6,1,6)",
+      "inputs": {},
+      "expected": 159500.0,
+      "source": "derived"
+    },
+    {
+      "function": "DB",
+      "cohort": "financial",
+      "formula": "DB(1000000,100000,6,7,6)",
+      "inputs": {},
+      "expected": 19635.13830743095,
+      "source": "derived"
+    },
+    {
+      "function": "DDB",
+      "cohort": "financial",
+      "formula": "DDB(2400,300,10,1)",
+      "inputs": {},
+      "expected": 480.0,
+      "source": "derived"
+    },
+    {
+      "function": "DDB",
+      "cohort": "financial",
+      "formula": "DDB(2400,300,10,2)",
+      "inputs": {},
+      "expected": 384.0,
+      "source": "derived"
+    },
+    {
+      "function": "DDB",
+      "cohort": "financial",
+      "formula": "DDB(2400,300,10,10)",
+      "inputs": {},
+      "expected": 22.122547200000042,
+      "source": "derived"
+    },
+    {
+      "function": "DDB",
+      "cohort": "financial",
+      "formula": "DDB(2400,300,10,3,1.5)",
+      "inputs": {},
+      "expected": 260.1,
+      "source": "derived"
+    },
+    {
+      "function": "DDB",
+      "cohort": "financial",
+      "formula": "DDB(2400,300,10,11)",
+      "inputs": {},
+      "expected": "#NUM!",
+      "source": "derived"
     }
   ]
 }

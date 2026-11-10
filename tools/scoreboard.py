@@ -97,7 +97,10 @@ def build() -> Tuple[str, int, int]:
         source_counts[row.get("source", "docs")] = source_counts.get(row.get("source", "docs"), 0) + 1
     provenance = ", ".join(f"{count} {name}" for name, count in sorted(source_counts.items()))
     lines.append(f"**Expectation provenance:** {provenance}. `docs` means Microsoft's documented")
-    lines.append("semantics; `excel` means captured from Excel and frozen. No `docs` entry claims to be one.")
+    lines.append("semantics; `excel` means captured from Excel and frozen; `derived` means computed here")
+    lines.append("from the documented closed form with exact rational arithmetic, which is a second")
+    lines.append("implementation of the definition rather than a capture of Excel's own result. No `docs`")
+    lines.append("or `derived` entry claims to be an `excel` capture.")
     lines.append("")
     lines.append("| cohort | passing | total | score |")
     lines.append("| --- | --- | --- | --- |")
