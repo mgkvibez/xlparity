@@ -30,7 +30,7 @@ stays on the board after it starts passing, so the score cannot be quietly impro
   `XIRR` solve for the root and refuse `#NUM!` when a cash flow has none, `DB` rounds its rate to three decimals before
   depreciating (that rounding is the definition, not a tidy-up), and `DDB` stops at salvage rather than following its
   formula past it.
-- 103 tests.
+- 115 tests.
 
 ## Reading Excel rather than imitating it
 
@@ -57,6 +57,14 @@ The limit is worth stating plainly: the tests assemble their workbooks part by p
 is no Excel on this machine. They check the semantics I can state from the specification, not that Excel's own writer emits
 what I expect. A real workbook added to the corpus is what would settle that.
 
+`tools/import_workbook.py` is the bridge from a workbook to corpus entries: it walks each sheet, takes every formula cell
+whose value Excel cached, reconstructs the inputs from the neighbouring cached values, and emits an entry tagged `excel`
+with the workbook, sheet and cell recorded. It computes nothing itself. A cell whose own value is uncached, one that
+depends on an uncached cell, one that reaches another sheet, a self-reference, an array formula and a formatted date are
+each skipped with their reason printed, because replaying them would compare the engine against a different workbook from
+the one Excel calculated. The `excel` column stays at zero until someone runs a real workbook through it, which is the one
+claim this repository cannot make on this machine.
+
 ## What does not work yet
 
 - The scoreboard is real but not yet Excel-captured: 60 corpus formulas, none tagged `excel`. 35 are tagged `docs`
@@ -71,10 +79,10 @@ what I expect. A real workbook added to the corpus is what would settle that.
 
 ## Status
 
-**Stage 0: scaffolding.** The parser and evaluator exist with 103 passing tests covering the details that "Excel-ish"
+**Stage 0: scaffolding.** The parser and evaluator exist with 115 passing tests covering the details that "Excel-ish"
 engines get wrong:
 
-**Tests:** 103
+**Tests:** 115
 
 Lookups (`VLOOKUP`, `INDEX`, `MATCH`) exist with Excel's semantics rather than the convenient ones: approximate match is
 the default, text comparison ignores case, `INDEX` truncates a fractional index, "not found" is `#N/A` while "out of
@@ -110,7 +118,7 @@ current was false; it is enforced now.
 2. **Corpus**: real spreadsheets plus per-function cases with Excel-captured expected values.
 3. **Scoreboard**: cohort scores, published, and gated in `scripts/verify.sh`, so a page that disagrees with the corpus
    fails CI instead of ageing quietly.
-4. **XLSX reader** (done for values and formulas): shared strings with rich text, cell types, styles as far as dates,
+4. **XLSX reader and corpus import** (done for values and formulas): shared strings with rich text, cell types, styles as far as dates,
    formulas with their cached values, defined names, and both date systems. Not yet: array and shared formulas, and
    anything a chart or pivot carries.
 5. **XLSX writer with round-trip fidelity**: charts, pivots, conditional formats preserved or listed as lost by name.
